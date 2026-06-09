@@ -3,43 +3,110 @@ from flask import Flask, request
 app = Flask(__name__)
 
 @app.route("/")
-def home():
+def calculator():
     return """
-    <h1>Calculator App 🚀</h1>
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Calculator</title>
+        <style>
+            body{
+                font-family: Arial;
+                text-align:center;
+                margin-top:100px;
+                background:#f5f5f5;
+            }
 
-    <p>Examples:</p>
+            .box{
+                background:white;
+                width:350px;
+                margin:auto;
+                padding:20px;
+                border-radius:10px;
+                box-shadow:0 0 10px rgba(0,0,0,0.2);
+            }
 
-    <ul>
-        <li>/add?a=10&b=20</li>
-        <li>/sub?a=50&b=15</li>
-        <li>/mul?a=5&b=8</li>
-        <li>/div?a=100&b=4</li>
-    </ul>
+            input{
+                width:90%;
+                padding:10px;
+                margin:10px;
+                font-size:18px;
+            }
+
+            button{
+                padding:10px 20px;
+                margin:5px;
+                font-size:18px;
+                cursor:pointer;
+            }
+        </style>
+
+        <script>
+            function calculate(op){
+
+                let a = document.getElementById("num1").value;
+                let b = document.getElementById("num2").value;
+
+                fetch(`/calculate?a=${a}&b=${b}&op=${op}`)
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById("result").innerHTML =
+                    "Result = " + data.result;
+                });
+            }
+        </script>
+    </head>
+
+    <body>
+
+        <div class="box">
+            <h1>🚀 Suraj Calculator</h1>
+
+            <input id="num1" type="number" placeholder="First Number">
+
+            <input id="num2" type="number" placeholder="Second Number">
+
+            <br>
+
+            <button onclick="calculate('add')">+</button>
+
+            <button onclick="calculate('sub')">-</button>
+
+            <button onclick="calculate('mul')">*</button>
+
+            <button onclick="calculate('div')">/</button>
+
+            <h2 id="result"></h2>
+
+        </div>
+
+    </body>
+    </html>
     """
 
-@app.route("/add")
-def add():
-    a = float(request.args.get("a", 0))
-    b = float(request.args.get("b", 0))
-    return {"operation": "addition", "result": a + b}
+@app.route("/calculate")
+def calculate():
 
-@app.route("/sub")
-def sub():
-    a = float(request.args.get("a", 0))
-    b = float(request.args.get("b", 0))
-    return {"operation": "subtraction", "result": a - b}
+    a = float(request.args.get("a",0))
+    b = float(request.args.get("b",0))
+    op = request.args.get("op")
 
-@app.route("/mul")
-def mul():
-    a = float(request.args.get("a", 0))
-    b = float(request.args.get("b", 0))
-    return {"operation": "multiplication", "result": a * b}
+    if op=="add":
+        result = a+b
 
-@app.route("/div")
-def div():
-    a = float(request.args.get("a", 0))
-    b = float(request.args.get("b", 1))
-    return {"operation": "division", "result": a / b}
+    elif op=="sub":
+        result = a-b
+
+    elif op=="mul":
+        result = a*b
+
+    elif op=="div":
+        result = a/b if b!=0 else "Cannot divide by zero"
+
+    else:
+        result = "Invalid Operation"
+
+    return {"result":result}
 
 if __name__ == "__main__":
     app.run()
