@@ -1,2 +1,7 @@
 flask
 gunicorn
+streamlit
+pandasplotly.express
+plotly.graph_objects
+numpy
+io
