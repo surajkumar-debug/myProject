@@ -66,7 +66,7 @@ if uploaded_file:
             col_types[col] = "📈 Numeric"
         elif pd.api.types.is_datetime64_any_dtype(df[col]):
             col_types[col] = "📅 Date/Time"
-        elif pd.api.types.is_categorical_dtype(df[col]) or df[col].nunique() < 10:
+        elif str(df[col].dtype) == "category" or df[col].nunique() < 10:
             col_types[col] = "🏷️ Categorical"
         else:
             col_types[col] = "📝 Text"
