@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import numpy as np
+import io
 
 # ---------------- Page config ----------------
 st.set_page_config(
@@ -11,20 +12,95 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ---------------- Global theme tokens ----------------
+PRIMARY = "#4F46E5"
+ACCENT = "#06B6D4"
+SUCCESS = "#10B981"
+WARNING = "#F59E0B"
+DANGER = "#EF4444"
+TEXT_DARK = "#1E293B"
+TEXT_MUTED = "#64748B"
+BORDER = "#E2E8F0"
+
+# Premium chart palette (brand-aligned, replaces default Plotly Set2)
+COLOR_SEQ = ["#4F46E5", "#06B6D4", "#10B981", "#F59E0B", "#EF4444",
+             "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#3B82F6"]
+
+# ---------------- Global CSS ----------------
 st.markdown("""
 <style>
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; font-size: 18px; }
-    .reportview-container .main .block-container { padding-top: 2rem; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    html, body, [class*="css"]  { font-family: 'Inter', sans-serif; }
+
+    .block-container { padding-top: 1.6rem; padding-bottom: 2.5rem; }
+
+    /* Hero header */
+    .hero-header {
+        background: linear-gradient(135deg, #4F46E5 0%, #06B6D4 100%);
+        padding: 2rem 2.2rem;
+        border-radius: 18px;
+        margin-bottom: 1.4rem;
+        box-shadow: 0 10px 30px rgba(79, 70, 229, 0.25);
+    }
+    .hero-header h1 { color: #fff; font-weight: 800; font-size: 2rem; margin: 0; }
+    .hero-header p { color: rgba(255,255,255,0.88); font-size: 1rem; margin-top: 0.45rem; }
+
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 6px; background: #F1F5F9; padding: 6px; border-radius: 14px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 46px; white-space: pre-wrap; font-size: 14.5px; font-weight: 600;
+        border-radius: 10px; color: #64748B;
+    }
+    .stTabs [aria-selected="true"] {
+        background: #fff !important; color: #4F46E5 !important;
+        box-shadow: 0 2px 8px rgba(15,23,42,0.10);
+    }
+
+    /* Metric cards */
+    [data-testid="stMetric"] {
+        background: #fff; border: 1px solid #E2E8F0; border-radius: 14px;
+        padding: 14px 18px; box-shadow: 0 2px 10px rgba(15,23,42,0.04);
+    }
+    [data-testid="stMetricLabel"] { color: #64748B; font-weight: 600; }
+    [data-testid="stMetricValue"] { color: #1E293B; font-weight: 800; }
+
+    /* Buttons */
+    .stButton button, .stDownloadButton button {
+        background: linear-gradient(135deg, #4F46E5, #06B6D4);
+        color: #fff; border: none; border-radius: 10px; font-weight: 600;
+        padding: 0.55rem 1.2rem; transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .stButton button:hover, .stDownloadButton button:hover {
+        transform: translateY(-2px); box-shadow: 0 6px 16px rgba(79,70,229,0.35); color: #fff;
+    }
+
+    /* File uploader dropzone */
+    [data-testid="stFileUploaderDropzone"] {
+        border: 2px dashed #818CF8; border-radius: 14px; background: #F5F7FF;
+    }
+
+    /* Sidebar brand card */
+    .sidebar-brand {
+        background: linear-gradient(135deg, #4F46E5, #06B6D4);
+        border-radius: 14px; padding: 16px 18px; margin-bottom: 14px;
+        box-shadow: 0 4px 14px rgba(79,70,229,0.25);
+    }
+    .sidebar-brand h3 { color: #fff; margin: 0; font-weight: 800; font-size: 1.05rem; }
+    .sidebar-brand p { color: rgba(255,255,255,0.85); margin: 4px 0 0 0; font-size: 0.82rem; }
+
+    /* Footer */
+    .footer-bar {
+        text-align: center; padding: 14px; color: #64748B; font-size: 0.85rem;
+        border-top: 1px solid #E2E8F0; margin-top: 1.5rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 Excel to Pro Dashboard Generator")
-st.markdown("---")
 
-# Consistent color palette + chart styling helper
-COLOR_SEQ = px.colors.qualitative.Set2
-
+# ---------------- Helper functions ----------------
 def style_chart(fig, height=420):
     """Apply consistent professional styling to every chart."""
     fig.update_layout(
@@ -68,9 +144,52 @@ def top_n_group(d, group_col, value_col, agg, n=15):
     return g
 
 
-# ---------------- Sidebar upload ----------------
+def kpi_card(icon, label, value, accent=PRIMARY):
+    """Returns HTML for a small KPI card."""
+    return f"""
+    <div style="background:#FFFFFF; border:1px solid {BORDER}; border-top:4px solid {accent};
+                border-radius:14px; padding:18px 20px; box-shadow:0 2px 10px rgba(15,23,42,0.05);
+                min-height: 108px;">
+      <div style="font-size:1.6rem; line-height:1;">{icon}</div>
+      <div style="color:{TEXT_MUTED}; font-size:0.78rem; font-weight:600; text-transform:uppercase;
+                  letter-spacing:0.04em; margin-top:8px;">{label}</div>
+      <div style="color:{TEXT_DARK}; font-size:1.5rem; font-weight:800; margin-top:2px;">{value}</div>
+    </div>
+    """
+
+
+def type_badge(col_name, col_type):
+    """Returns HTML for a colored pill showing a column's detected type."""
+    palette = {
+        "📈 Numeric": ("#4F46E5", "#EEF2FF"),
+        "📅 Date/Time": ("#8B5CF6", "#F5F3FF"),
+        "🏷️ Categorical": ("#0D9488", "#ECFDF5"),
+        "📝 Text": ("#64748B", "#F1F5F9"),
+    }
+    fg, bg = palette.get(col_type, ("#64748B", "#F1F5F9"))
+    return (f'<span style="background:{bg}; color:{fg}; padding:5px 12px; border-radius:20px; '
+             f'font-size:0.78rem; font-weight:600; margin:4px 4px 0 0; display:inline-block; '
+             f'border:1px solid {fg}33;">{col_name} · {col_type}</span>')
+
+
+# ---------------- Hero header ----------------
+st.markdown("""
+<div class="hero-header">
+    <h1>📊 Excel to Pro Dashboard Generator</h1>
+    <p>Apni Excel file upload karo aur seconds me professional, interactive dashboard pao — no coding needed.</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ---------------- Sidebar ----------------
 with st.sidebar:
-    st.header("📁 Upload Your Data")
+    st.markdown("""
+    <div class="sidebar-brand">
+        <h3>🚀 Excel Dashboard Pro</h3>
+        <p>Upload • Explore • Visualize • Export</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.subheader("📁 Upload Your Data")
     uploaded_file = st.file_uploader(
         "Choose an Excel file",
         type=['xlsx', 'xls'],
@@ -82,11 +201,17 @@ with st.sidebar:
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
 
+    total_cells = df.shape[0] * df.shape[1]
+    missing_cells = int(df.isnull().sum().sum())
+    completeness = 100 * (1 - missing_cells / total_cells) if total_cells > 0 else 100
+    duplicate_rows = int(df.duplicated().sum())
+
     st.sidebar.markdown("---")
     st.sidebar.subheader("📊 Data Overview")
     st.sidebar.write(f"**Rows:** {df.shape[0]}")
     st.sidebar.write(f"**Columns:** {df.shape[1]}")
-    st.sidebar.write(f"**Missing values:** {df.isnull().sum().sum()}")
+    st.sidebar.write(f"**Missing values:** {missing_cells}")
+    st.sidebar.write(f"**Duplicate rows:** {duplicate_rows}")
 
     # Column type detection (robust)
     col_types = {}
@@ -100,29 +225,57 @@ if uploaded_file:
         else:
             col_types[col] = "📝 Text"
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # ---- Top KPI snapshot row ----
+    completeness_color = SUCCESS if completeness >= 95 else (WARNING if completeness >= 80 else DANGER)
+    dup_color = SUCCESS if duplicate_rows == 0 else WARNING
+
+    k1, k2, k3, k4 = st.columns(4)
+    with k1:
+        st.markdown(kpi_card("📋", "Total Rows", f"{df.shape[0]:,}", PRIMARY), unsafe_allow_html=True)
+    with k2:
+        st.markdown(kpi_card("🧮", "Total Columns", df.shape[1], ACCENT), unsafe_allow_html=True)
+    with k3:
+        st.markdown(kpi_card("✅", "Data Completeness", f"{completeness:.1f}%", completeness_color),
+                    unsafe_allow_html=True)
+    with k4:
+        st.markdown(kpi_card("🧬", "Duplicate Rows", duplicate_rows, dup_color), unsafe_allow_html=True)
+
+    st.write("")
+
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📋 Data Preview",
         "📊 Auto Dashboards",
         "📈 Charts Gallery",
         "📐 Statistics",
-        "🎛️ Custom Analysis"
+        "🎛️ Custom Analysis",
+        "📘 How to Use"
     ])
 
     # ============== TAB 1: Preview ==============
     with tab1:
         st.subheader("Raw Data Preview")
-        with st.expander("🔍 Column Data Types Detected"):
-            for col, col_type in col_types.items():
-                st.write(f"**{col}**: {col_type}")
 
-        st.dataframe(df, use_container_width=True)
+        with st.expander("🔍 Column Data Types Detected", expanded=False):
+            badges_html = "".join(type_badge(c, t) for c, t in col_types.items())
+            st.markdown(f'<div style="line-height:2.4;">{badges_html}</div>', unsafe_allow_html=True)
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Rows", df.shape[0])
-        with col2:
-            st.metric("Total Columns", df.shape[1])
-        with col3:
+        search_term = st.text_input("🔎 Search anywhere in the data", "",
+                                     placeholder="Type any value, name, code etc. to filter rows...")
+        if search_term:
+            mask = df.astype(str).apply(lambda col: col.str.contains(search_term, case=False, na=False)).any(axis=1)
+            display_df = df[mask]
+        else:
+            display_df = df
+
+        st.dataframe(display_df, use_container_width=True)
+
+        m1, m2 = st.columns(2)
+        with m1:
+            if search_term:
+                st.metric("Rows Matching Search", f"{len(display_df):,}")
+            else:
+                st.metric("Total Rows", f"{df.shape[0]:,}")
+        with m2:
             st.metric("Memory Usage", f"{df.memory_usage(deep=True).sum() / 1024:.2f} KB")
 
     # ============== TAB 2: Auto Dashboards ==============
@@ -284,7 +437,11 @@ if uploaded_file:
             'Missing Count': df.isnull().sum().values,
             'Missing Percentage': (df.isnull().sum().values / len(df)) * 100
         })
-        st.dataframe(missing_df[missing_df['Missing Count'] > 0], use_container_width=True)
+        missing_only = missing_df[missing_df['Missing Count'] > 0]
+        if missing_only.empty:
+            st.success("🎉 No missing values found in this dataset!")
+        else:
+            st.dataframe(missing_only, use_container_width=True)
 
         st.markdown("### 🔢 Unique Values per Column")
         unique_df = pd.DataFrame({
@@ -294,13 +451,21 @@ if uploaded_file:
         })
         st.dataframe(unique_df, use_container_width=True)
 
-    # ============== TAB 5: Custom Analysis (rebuilt) ==============
+    # ============== TAB 5: Custom Analysis ==============
     with tab5:
         st.subheader("🎛️ Custom Analysis Builder")
 
         # ---- Dynamic filters (crash-safe) ----
         st.markdown("### 🔍 Dynamic Filters")
         filtered_df = df.copy()
+
+        reset_col, _ = st.columns([1, 4])
+        with reset_col:
+            if st.button("🔄 Reset All Filters"):
+                for k in list(st.session_state.keys()):
+                    if k.startswith("filter_"):
+                        del st.session_state[k]
+                st.rerun()
 
         with st.expander("Show/Hide Filters", expanded=False):
             for col in df.columns:
@@ -382,40 +547,88 @@ if uploaded_file:
 
         # ---- Download filtered data ----
         st.markdown("---")
-        csv = filtered_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download Filtered Data (CSV)",
-            data=csv,
-            file_name='filtered_data.csv',
-            mime='text/csv',
-        )
+        st.markdown("### 📥 Export Filtered Data")
+        d1, d2 = st.columns(2)
+        with d1:
+            csv = filtered_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download as CSV",
+                data=csv,
+                file_name='filtered_data.csv',
+                mime='text/csv',
+            )
+        with d2:
+            excel_buffer = io.BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                filtered_df.to_excel(writer, index=False, sheet_name='Filtered Data')
+            st.download_button(
+                label="📥 Download as Excel",
+                data=excel_buffer.getvalue(),
+                file_name='filtered_data.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            )
+
+    # ============== TAB 6: How to Use ==============
+    with tab6:
+        st.subheader("📘 Quick Guide")
+        st.caption("Yaha har tab ka kaam aur use karne ka tareeka diya gaya hai.")
+
+        guide_items = [
+            ("📋 Data Preview", "Apni poori raw data dekho, column types check karo (Numeric/Date/Categorical/Text "
+             "badges), search box se kisi bhi value ko turant dhundo."),
+            ("📊 Auto Dashboards", "Bina kuch select kiye instant dashboard chahiye? Overview Dashboard se key "
+             "metrics aur top chart milenge. Correlation Dashboard numeric columns ke beech relationship dikhata "
+             "hai. Distribution Dashboard har numeric column ka spread dikhata hai."),
+            ("📈 Charts Gallery", "Bar, Line, Scatter, Pie, Box, Histogram, Area — koi bhi chart type choose karo "
+             "aur dropdown se columns set karo, chart turant update ho jayega."),
+            ("📐 Statistics", "Summary statistics (mean, std, min, max), missing values report, aur har column "
+             "ke unique values ek nazar me."),
+            ("🎛️ Custom Analysis", "Sabse powerful tab. Pehle filters lagao (numeric range ya category select karo), "
+             "phir koi bhi column group-by karke Count/Sum/Mean/Min/Max nikalo, chart type choose karo, aur "
+             "filtered data CSV ya Excel me download karo."),
+        ]
+        for title, desc in guide_items:
+            with st.container(border=True):
+                st.markdown(f"**{title}**")
+                st.write(desc)
+
+        st.info("💡 Tip: Charts ke top-right corner me camera icon se aap kisi bhi chart ko PNG image ke roop "
+                "me bhi download kar sakte ho.")
 
 else:
     st.info("👈 Please upload an Excel file from the sidebar to get started!")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("""
-        ### 📋 Features
-        - Auto-detect data types
-        - Interactive dashboards
-        - Multiple chart types
-        - Statistical analysis
-        """)
-    with col2:
-        st.markdown("""
-        ### 📊 Supported Charts
-        - Bar/Line/Scatter
-        - Pie/Box/Histogram/Area
-        - Correlation heatmaps
-        """)
-    with col3:
-        st.markdown("""
-        ### 🎯 Use Cases
-        - Sales analysis
-        - Financial reporting
-        - Customer insights
-        - KPI dashboards
-        """)
 
-st.markdown("---")
-st.markdown("🚀 **Excel Dashboard Pro** - Auto-generate professional dashboards from Excel files")
+    s1, s2, s3 = st.columns(3)
+    with s1:
+        with st.container(border=True):
+            st.markdown("### 📋 Features")
+            st.write("Auto-detect data types, interactive dashboards, multiple chart types, statistical analysis.")
+    with s2:
+        with st.container(border=True):
+            st.markdown("### 📊 Supported Charts")
+            st.write("Bar, Line, Scatter, Pie, Box, Histogram, Area, and Correlation heatmaps.")
+    with s3:
+        with st.container(border=True):
+            st.markdown("### 🎯 Use Cases")
+            st.write("Sales analysis, financial reporting, customer insights, KPI dashboards.")
+
+    st.markdown("### 🚦 How it works")
+    h1, h2, h3 = st.columns(3)
+    with h1:
+        with st.container(border=True):
+            st.markdown("**1️⃣ Upload**")
+            st.write("Sidebar se apni .xlsx/.xls file upload karo.")
+    with h2:
+        with st.container(border=True):
+            st.markdown("**2️⃣ Explore**")
+            st.write("Tabs me dashboards, charts aur stats automatically generate ho jayenge.")
+    with h3:
+        with st.container(border=True):
+            st.markdown("**3️⃣ Export**")
+            st.write("Custom Analysis tab se filtered data CSV/Excel me download karo.")
+
+st.markdown("""
+<div class="footer-bar">
+    🚀 <b>Excel Dashboard Pro</b> — Auto-generate professional dashboards from Excel files
+</div>
+""", unsafe_allow_html=True)
