@@ -1,7 +1,8 @@
-flask
-gunicorn
 streamlit
-pandasplotly.express
-plotly.graph_objects
+pandas
+plotly
 numpy
-io
+openpyxl
+xlrd
+gunicorn
+flask
